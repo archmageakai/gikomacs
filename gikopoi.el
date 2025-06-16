@@ -495,18 +495,47 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
 (defun gikopoi-init-user-list-buffer ()
   (let-alist gikopoi-lang-alist
     (setq gikopoi-user-list-buffer
-	  (get-buffer-create (format "*%s*" "User List")))
+          (get-buffer-create (format "*%s*" "User List")))
     (with-current-buffer gikopoi-user-list-buffer
       (tabulated-list-mode)
       (setq tabulated-list-format
-	    `[(,.ui.user_list_popup_column_user_name 25 t)
-	      ("Status" 6 nil)])
+            `[("Name" 25 t)
+              ("Status" 6 nil)
+              ("ID" 10 t)])  ;; new column
       (tabulated-list-init-header)
       (add-hook 'tabulated-list-revert-hook
-		(lambda ()
-		  (setq tabulated-list-entries (gikopoi-user-list))) nil t)
+                (lambda ()
+                  (setq tabulated-list-entries (gikopoi-user-list)))
+                nil t)
       (gikopoi-user-list-mode))))
 
+;; (defun gikopoi-init-user-list-buffer ()
+;;   (let-alist gikopoi-lang-alist
+;;     (setq gikopoi-user-list-buffer
+;; 	  (get-buffer-create (format "*%s*" "User List")))
+;;     (with-current-buffer gikopoi-user-list-buffer
+;;       (tabulated-list-mode)
+;;       (setq tabulated-list-format
+;; 	    `[(,.ui.user_list_popup_column_user_name 25 t)
+;; 	      ("Status" 6 nil)])
+;;       (tabulated-list-init-header)
+;;       (add-hook 'tabulated-list-revert-hook
+;; 		(lambda ()
+;; 		  (setq tabulated-list-entries (gikopoi-user-list))) nil t)
+;;       (gikopoi-user-list-mode))))
+
+(defun gikopoi-user-list ()
+  "Returns the list of current users in the form (ID [NAME STATUS ID]) ..."
+  (mapcar (lambda (user)
+            (let ((id (gikopoi-user-id user))
+                  (name (gikopoi-user-name user))
+                  (status (string-join
+                           (list (if (gikopoi-user-active-p user) "" "Zz")
+                                 (if (gikopoi-user-ignored-p user) "I" ""))
+                           " ")))
+              ;; Return: (ID [NAME STATUS ID])
+              (list id (vector name status (format "%s" id)))))
+          (gikopoi-room-users gikopoi-current-room)))
 
 (defun gikopoi-list-users ()
   "Populates and opens the user list buffer."
@@ -607,17 +636,17 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
          (remaining-lines (- (count-lines end (point-max)))))
     (and win (<= remaining-lines (window-body-height win)))))
 
-(defun gikopoi-scroll-down-safely ()
-  "Safe scroll dn."
-  (interactive)
-  (let ((win (get-buffer-window gikopoi-message-buffer)))
-    (if (gikopoi--at-bottom-p)
-        (progn
-          (with-selected-window win
-            (goto-char (point-max))
-            (recenter -1))
-          (message "End of buffer"))
-      (scroll-up-command))))
+;; (defun gikopoi-scroll-down-safely ()
+;;   "Safe scroll dn."
+;;   (interactive)
+;;   (let ((win (get-buffer-window gikopoi-message-buffer)))
+;;     (if (gikopoi--at-bottom-p)
+;;         (progn
+;;           (with-selected-window win
+;;             (goto-char (point-max))
+;;             (recenter -1))
+;;           (message "End of buffer"))
+;;       (scroll-up-command))))
 
 (defvar gikopoi-msg-mode-map (make-sparse-keymap)
   "Keymap for message buffer only.")
@@ -627,23 +656,23 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
 (define-key gikopoi-msg-mode-map (kbd "C-v") #'gikopoi-scroll-down-safely)
 
 
-(defun gikopoi-scroll-up-safely ()
-  "Safe scroll dn."
-  (interactive)
-  (let ((win (get-buffer-window gikopoi-message-buffer)))
-    (cond
+;; (defun gikopoi-scroll-up-safely ()
+;;   "Safe scroll dn."
+;;   (interactive)
+;;   (let ((win (get-buffer-window gikopoi-message-buffer)))
+;;     (cond
      
-     ((gikopoi--at-bottom-p)
-      (message "No scroll."))
+;;      ((gikopoi--at-bottom-p)
+;;       (message "No scroll."))
 
-     ((< (- (point-max) (window-end win t)) (* (window-body-height win) 1.0))
-      (with-selected-window win
-        (goto-char (point-max))
-        (recenter -1)
-        (setq gikopoi--last-point-max (point-max))))
+;;      ((< (- (point-max) (window-end win t)) (* (window-body-height win) 1.0))
+;;       (with-selected-window win
+;;         (goto-char (point-max))
+;;         (recenter -1)
+;;         (setq gikopoi--last-point-max (point-max))))
 
-     (t
-      (scroll-up-command)))))
+;;      (t
+;;       (scroll-up-command)))))
 
 (defun gikopoi-message-buffer-force-scroll ()
   "Force scroll buffer."
@@ -660,6 +689,8 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
   (setq-local scroll-step 1)
   (setq-local redisplay-dont-pause t))
 
+;; new 6/4
+
 (defun gikopoi-init-message-buffer (server &rest _args)
   (setq gikopoi-message-buffer (get-buffer-create "*Gikopoi*"))
   (with-current-buffer gikopoi-message-buffer
@@ -669,7 +700,22 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
     (visual-line-mode 1)
     (setq buffer-read-only t)
     (gikopoi--prevent-scroll-jump))
-  (display-buffer gikopoi-message-buffer))
+  (display-buffer gikopoi-message-buffer)
+  ;; Scroll if messages built up while not visible
+  (when gikopoi--should-scroll-on-visible
+    (gikopoi-message-buffer-force-scroll)
+    (setq gikopoi--should-scroll-on-visible nil)))
+
+;; (defun gikopoi-init-message-buffer (server &rest _args)
+;;   (setq gikopoi-message-buffer (get-buffer-create "*Gikopoi*"))
+;;   (with-current-buffer gikopoi-message-buffer
+;;     (gikopoi-mode)
+;;     (gikopoi-msg-mode)
+;;     (goto-address-mode)
+;;     (visual-line-mode 1)
+;;     (setq buffer-read-only t)
+;;     (gikopoi--prevent-scroll-jump))
+;;   (display-buffer gikopoi-message-buffer))
 
 (defun gikopoi--pad-chat-cleanup-space ()
   "Pad chat 1 (cleanup)."
@@ -682,26 +728,54 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
       (let ((buffer-read-only nil))
         (insert (make-string padding-lines ?\n))))))
 
+;; new 6/4
+
 (defun gikopoi--at-bottom-p ()
-  "Return non-nil if the point is at the visual bottom of the window."
+  "Return non-nil if point is visually at bottom."
   (let ((win (get-buffer-window gikopoi-message-buffer)))
     (and win
-         (<= (- (point-max) (window-end win t)) 1))))
+         ;; Force update of window-end
+         (<= (- (point-max) (window-end win nil)) 1))))
+
+;; (defun gikopoi--at-bottom-p ()
+;;   "Return non-nil if the point is at the visual bottom of the window."
+;;   (let ((win (get-buffer-window gikopoi-message-buffer)))
+;;     (and win
+;;          (<= (- (point-max) (window-end win t)) 1))))
+
+;; new 6/4
 
 (defmacro gikopoi-with-message-buffer (&rest body)
   (declare (indent defun))
   `(with-current-buffer gikopoi-message-buffer
      (let* ((win (get-buffer-window))
-            (at-bottom (gikopoi--at-bottom-p)))
+            (at-bottom (and win (gikopoi--at-bottom-p))))
        (save-excursion
          (goto-char (point-max))
          (let ((buffer-read-only nil))
            ,@body))
-       ;; * set cursor
-       (when (and win at-bottom)
-         (set-window-point win (point-max)))
-       ;; *
-       (setq gikopoi--last-point-max (point-max)))))
+       (setq gikopoi--last-point-max (point-max))
+       (cond
+        (win
+         (when at-bottom
+           (set-window-point win (point-max))))
+        (t
+         (setq gikopoi--should-scroll-on-visible t))))))
+
+;; (defmacro gikopoi-with-message-buffer (&rest body)
+;;   (declare (indent defun))
+;;   `(with-current-buffer gikopoi-message-buffer
+;;      (let* ((win (get-buffer-window))
+;;             (at-bottom (gikopoi--at-bottom-p)))
+;;        (save-excursion
+;;          (goto-char (point-max))
+;;          (let ((buffer-read-only nil))
+;;            ,@body))
+;;        ;; * set cursor
+;;        (when (and win at-bottom)
+;;          (set-window-point win (point-max)))
+;;        ;; *
+;;        (setq gikopoi--last-point-max (point-max)))))
 
 (defun gikopoi--pad-chat-to-bottom ()
   "Pad chat 2."
@@ -720,6 +794,92 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
         (when (> padding-lines 0)
           (insert (make-string padding-lines ?\n)))))))
 
+;; new 6/4
+
+(defvar gikopoi--should-scroll-on-visible nil)
+
+;; new 6/5 -- edited scroll up scroll down
+
+;; (defun gikopoi-scroll-down-safely ()
+;;   "Safe scroll down with auto flush near bottom."
+;;   (interactive)
+;;   (let ((win (get-buffer-window gikopoi-message-buffer)))
+;;     (if (not win)
+;;         (message "Buffer not visible")
+;;       (let* ((point-max (point-max))
+;;              (window-end-pos (window-end win t))
+;;              (window-height (window-body-height win))
+;;              (distance-to-bottom (- point-max window-end-pos)))
+;;         (if (or (gikopoi--at-bottom-p)
+;;                 (< distance-to-bottom window-height))
+;;             ;; If at bottom or near bottom, flush to bottom
+;;             (progn
+;;               (with-selected-window win
+;;                 (goto-char point-max)
+;;                 (recenter -1))
+;;               (message "End of buffer"))
+;;           ;; else scroll normally
+;;           (scroll-up-command))))))
+
+(defun gikopoi-scroll-down-safely ()
+  "Scroll down and flush to bottom if near it."
+  (interactive)
+  (let ((win (get-buffer-window gikopoi-message-buffer)))
+    (when win
+      (with-selected-window win
+        (scroll-up-command)
+        (when (<= (- (point-max) (window-end win t)) (window-body-height win))
+          (goto-char (point-max))
+          (recenter -1)
+          (message "End of buffer (auto-flush)")
+          (run-at-time "2 sec" nil (lambda () (message nil))))))))
+
+(defun gikopoi-scroll-up-safely ()
+  "Safe scroll up with auto flush near bottom when scrolling down later."
+  (interactive)
+  (let ((win (get-buffer-window gikopoi-message-buffer)))
+    (if (not win)
+        (message "Buffer not visible")
+      (let* ((point-max (point-max))
+             (window-end-pos (window-end win t))
+             (window-height (window-body-height win))
+             (distance-to-bottom (- point-max window-end-pos)))
+        (cond
+         ;; At top of buffer? Just message, don't scroll further up
+         ((= (point) (point-min))
+          (message "Top of buffer reached"))
+
+         ;; If close to bottom, flush to bottom
+         ((< distance-to-bottom window-height)
+          (with-selected-window win
+            (goto-char point-max)
+            (recenter -1)
+            (setq gikopoi--last-point-max point-max)))
+
+         ;; else scroll down by one page normally (which in Emacs scroll-up-command scrolls down)
+         (t
+          (scroll-down-command)))))))
+
+;; 6/7
+
+(defvar gikopoi--user-at-bottom-p t
+  "Non-nil if user was last seen at bottom of message buffer.")
+
+(defun gikopoi--update-user-scroll-status ()
+  (when (and (get-buffer-window gikopoi-message-buffer)
+             (eq (current-buffer) gikopoi-message-buffer))
+    (setq gikopoi--user-at-bottom-p (gikopoi--near-bottom-p))))
+
+(add-hook 'post-command-hook #'gikopoi--update-user-scroll-status)
+
+(defun gikopoi--append-message (text)
+  (with-current-buffer gikopoi-message-buffer
+    (let ((inhibit-read-only t))
+      (goto-char (point-max))
+      (insert text "\n"))
+    ;; Scroll if user was previously at bottom
+    (when gikopoi--user-at-bottom-p
+      (gikopoi-message-buffer-force-scroll))))
 
 
 ;; Interactive
