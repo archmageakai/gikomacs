@@ -1204,30 +1204,72 @@ specified by 'gikopoi-autoquote-format'."
 
 (defvar gikopoi-message-matched-p nil)
 
-(cl-defmethod gikopoi-user-insert-message ((user gikopoi-user) message)
+
+;; logger
+(defvar gikopoi-log-directory "./logs/"
+  "Directory where Gikopoi logs are stored.")
+
+(defun gikopoi--log-to-file (text)
+  "Append TEXT to a log file named by today's date in `gikopoi-log-directory`."
+  (let* ((log-dir (or (and (boundp 'gikopoi-log-directory)
+                           gikopoi-log-directory)
+                      "./logs/"))
+         (date-str (format-time-string "%Y-%m-%d"))
+         (log-file (expand-file-name (concat date-str ".txt") log-dir)))
+    (unless (file-exists-p log-dir)
+      (make-directory log-dir t))
+    (with-temp-message ""
+      (with-temp-buffer
+        (insert (or text ""))
+        (append-to-file (point-min) (point-max) log-file)))))
+
+(cl-defmethod gikopoi-user-insert-message ((user gikopoi-user) msg)
   (unless (gikopoi-user-ignored-p user)
     (let ((timestamp (format-time-string akai-time)))
-      (setq message (concat timestamp message))
+      (setq msg (concat timestamp (or msg "")))
+      (gikopoi--log-to-file msg) ;; <-- Log the final formatted message
       (if (eq user gikopoi-current-user)
-	  (gikopoi-clear-mentions)
-	(when (setq gikopoi-message-matched-p
-		    (string-match gikopoi-mention-regexp message))
-	  (unless (null gikopoi-mention-color)
-	    (put-text-property (match-beginning 0) (match-end 0)
-			       'face `(:foreground ,gikopoi-mention-color) message)))
-	(unless (get-buffer-window gikopoi-message-buffer 'visible)
-	  (cl-incf gikopoi-unread-count)
-	  (when gikopoi-message-matched-p
-	    (cl-pushnew (gikopoi-user-name user) gikopoi-notif-names :test #'equal)))))
+          (gikopoi-clear-mentions)
+        (when (setq gikopoi-message-matched-p
+                    (string-match gikopoi-mention-regexp msg))
+          (unless (null gikopoi-mention-color)
+            (put-text-property (match-beginning 0) (match-end 0)
+                               'face `(:foreground ,gikopoi-mention-color) msg)))
+        (unless (get-buffer-window gikopoi-message-buffer 'visible)
+          (cl-incf gikopoi-unread-count)
+          (when gikopoi-message-matched-p
+            (cl-pushnew (gikopoi-user-name user) gikopoi-notif-names :test #'equal)))))
     (force-mode-line-update)
-    ;; (gikopoi-with-message-buffer
-    ;;  (let ((at-end (eql (point) (point-max))))
-    ;;   (save-excursion
-    ;;     (goto-char (point-max))
-    ;;     (insert message))
-    ;;   (when at-end
-    ;;     (goto-char (point-max)))))
-    (gikopoi-with-message-buffer (insert message))))
+    (gikopoi-with-message-buffer
+     (insert msg))))
+
+
+;; ;; original.
+;; (cl-defmethod gikopoi-user-insert-message ((user gikopoi-user) message)
+;;   (unless (gikopoi-user-ignored-p user)
+;;     (let ((timestamp (format-time-string akai-time)))
+;;       (setq message (concat timestamp message))
+;;       (if (eq user gikopoi-current-user)
+;; 	  (gikopoi-clear-mentions)
+;; 	(when (setq gikopoi-message-matched-p
+;; 		    (string-match gikopoi-mention-regexp message))
+;; 	  (unless (null gikopoi-mention-color)
+;; 	    (put-text-property (match-beginning 0) (match-end 0)
+;; 			       'face `(:foreground ,gikopoi-mention-color) message)))
+;; 	(unless (get-buffer-window gikopoi-message-buffer 'visible)
+;; 	  (cl-incf gikopoi-unread-count)
+;; 	  (when gikopoi-message-matched-p
+;; 	    (cl-pushnew (gikopoi-user-name user) gikopoi-notif-names :test #'equal)))))
+;;     (force-mode-line-update)
+
+;;     ;; (gikopoi-with-message-buffer
+;;     ;;  (let ((at-end (eql (point) (point-max))))
+;;     ;;   (save-excursion
+;;     ;;     (goto-char (point-max))
+;;     ;;     (insert message))
+;;     ;;   (when at-end
+;;     ;;     (goto-char (point-max)))))
+;;     (gikopoi-with-message-buffer (insert message))))
 
 
     
@@ -1279,7 +1321,7 @@ specified by 'gikopoi-autoquote-format'."
   (gikopoi-user-insert-message user (format "* %s %s\n" (gikopoi-user-name user) message)))
 
 (cl-defmethod gikopoi-user-roll-die ((user gikopoi-user) base sum times)
-  (gikopoi-user-insert-message user (format "* %s rolled %s x d%s and got %s!\n"
+  (gikopoi-user-insert-message user (format "[SYSTEM] * %s rolled %s x d%s and got %s!\n"
 					    (gikopoi-user-name user) times base sum)))
 
 (cl-defmethod gikopoi-user-join ((user gikopoi-user) &optional from reconnectp)
@@ -1315,8 +1357,6 @@ specified by 'gikopoi-autoquote-format'."
 
 (defun gikopoi-user-names ()
   (mapcar #'gikopoi-user-name (gikopoi-room-users gikopoi-current-room)))
-
-
 
 (gikopoi-defevent server-user-active (id)
   (setf (gikopoi-user-active-p (gikopoi-user-by-id id)) t))
@@ -1684,7 +1724,9 @@ specified by 'gikopoi-autoquote-format'."
 
 (gikopoi-defevent server-system-message (code message)
   (message "SYSTEM: %s" code)
-  (gikopoi-with-message-buffer (insert (format "SYSTEM: %s\n" message))))
+  (gikopoi-with-message-buffer (insert (format "%s[SYSTEM] %s\n"
+					       (format-time-string akai-time)
+					       message))))
 
 (gikopoi-defevent server-reject-movement ())
 
